@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Flying Fox Flappy Game with Forest Background and Spiked Pipes</title>
+  <style>
+    /* Basic reset and centering of canvas */
+    body {
+      margin: 0;
+      background: #70c5ce;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      height: 100vh;
+    }
+    canvas {
+      border: 2px solid #000;
+    }
+  </style>
+</head>
+<body>
+  <canvas id="gameCanvas" width="400" height="600"></canvas>
+  <script>
+    // --- SETUP ---
+    const canvas = document.getElementById('gameCanvas');
+    const ctx = canvas.getContext('2d');
+
+    // Constants for physics and pipes (using pixels and seconds)
+    const gravity = 900;        // pixels per second²
+    const jumpStrength = -350;  // pixels per second (upward velocity)
+    const pipeSpeed = 200;      // pixels per second
+    const pipeWidth = 60;       // width of each pipe in pixels
+    const pipeInterval = 1.5;   // seconds between new pipes
+
+    // Constants for spike dimensions
+    const spikeWidth = 10;      // width of each spike in pixels
+    const spikeHeight = 10;     // height of each spike in pixels
+
+    // Game state variables
+    let fox, pipes, score, gameOver, lastTime, pipeTimer, clouds;
+
+    // Load the flying fox image (place flying-fox.png in the same folder)
+    const foxImage = new Image();
+    foxImage.src = 'flying-fox.png';
+
+    // Load the forest background image (place forrest_background.png in the same folder)
+    const forestImage = new Image();
+    forestImage.src = 'forrest_background.png';
+
+    // --- GAME INITIALIZATION ---
+    function resetGame() {
+      // Create the fox character.
+      fox = {
+        x: 50,
+        y: canvas.height / 2,
+        width: 40,
+        height: 40,
+        velocity: 0
+      };
+      pipes = [];
+      score = 0;
+      gameOver = false;
+      pipeTimer = 0;
+      lastTime = performance.now();
+
+      // Initialize clouds array for the background.
+      clouds = [];
+      for (let i = 0; i < 5; i++) {
+        clouds.push({
+          x: Math.random() * canvas.width,
+          y: Math.random() * (canvas.height / 2),
+          scale: 0.5 + Math.random(),  // size variation
+          speed: 20 + Math.random() * 30  // slower than pipes
+        });
+      }
+
+      requestAnimationFrame(gameLoop);
+    }
+
+    // Create a new pipe pair with a gap between the top and bottom pipes.
+    function createPipe() {
+      const gap = 150;         // vertical gap between top and bottom pipes
+      const minPipeHeight = 50;  // minimum height for the top pipe
+      const maxPipeHeight = canvas.height - gap - minPipeHeight;
+      const topHeight = Math.floor(Math.random() * (maxPipeHeight - minPipeHeight + 1)) + minPipeHeight;
+      return {
+        x: canvas.width,
+        topHeight: topHeight,
+        gap: gap
+      };
+    }
+
+    // Helper function for axis-aligned bounding box collision detection.
+    function rectsIntersect(r1, r2) {
+      return !(
+        r2.x > r1.x + r1.width ||
+        r2.x + r2.width < r1.x ||
+        r2.y > r1.y + r1.height ||
+        r2.y + r2.height < r1.y
+      );
+    }
+
+    // --- INPUT HANDLING ---
+    // When the player presses Space or clicks the canvas, the fox “flaps.”
+    function flap() {
+      if (gameOver) {
+        resetGame();
+      } else {
+        fox.velocity = jumpStrength;
+      }
+    }
+    document.addEventListener('keydown', function(e) {
+      if (e.code === 'Space') {
+        flap();
+      }
+    });
+    canvas.addEventListener('click', flap);
+
+    // --- GAME LOOP ---
+    function gameLoop(timestamp) {
+      // Calculate the time elapsed (in seconds) since the last frame
+      const dt = (timestamp - lastTime) / 1000;
+      lastTime = timestamp;
+
+      if (!gameOver) {
+        update(dt);
+      }
+      draw();
+
+      if (!gameOver) {
+        requestAnimationFrame(gameLoop);
+      } else {
+        // Display Game Over and instructions for restarting.
+        ctx.fillStyle = 'black';
+        ctx.font = '30px Arial';
+        ctx.fillText('Game Over', canvas.width / 2 - 70, canvas.height / 2);
+        ctx.font = '20px Arial';
+        ctx.fillText('Click or press Space to restart', canvas.width / 2 - 130, canvas.height / 2 + 30);
+      }
+    }
+
+    // --- UPDATE FUNCTION ---
+    function update(dt) {
+      // Update clouds for background.
+      clouds.forEach(cloud => {
+        cloud.x -= cloud.speed * dt;
+        // Reset cloud position when it goes offscreen.
+        if (cloud.x < -100 * cloud.scale) {
+          cloud.x = canvas.width + Math.random() * 100;
+          cloud.y = Math.random() * (canvas.height / 2);
+          cloud.scale = 0.5 + Math.random();
+          cloud.speed = 20 + Math.random() * 30;
+        }
+      });
+
+      // Update the fox's vertical velocity and position.
+      fox.velocity += gravity * dt;
+      fox.y += fox.velocity * dt;
+
+      // Prevent the fox from going above the canvas.
+      if (fox.y < 0) {
+        fox.y = 0;
+        fox.velocity = 0;
+      }
+      // End the game if the fox hits the ground.
+      if (fox.y + fox.height > canvas.height) {
+        gameOver = true;
+      }
+
+      // Handle pipe spawning.
+      pipeTimer += dt;
+      if (pipeTimer > pipeInterval) {
+        pipes.push(createPipe());
+        pipeTimer = 0;
+      }
+
+      // Update the position of each pipe.
+      pipes.forEach(pipe => {
+        pipe.x -= pipeSpeed * dt;
+      });
+
+      // Remove pipes that have moved offscreen and update the score.
+      for (let i = pipes.length - 1; i >= 0; i--) {
+        if (pipes[i].x + pipeWidth < 0) {
+          pipes.splice(i, 1);
+          score++;
+        }
+      }
+
+      // Check for collisions between the fox and any pipes.
+      pipes.forEach(pipe => {
+        // Top pipe rectangle.
+        const topPipeRect = { x: pipe.x, y: 0, width: pipeWidth, height: pipe.topHeight };
+        // Bottom pipe rectangle.
+        const bottomPipeRect = {
+          x: pipe.x,
+          y: pipe.topHeight + pipe.gap,
+          width: pipeWidth,
+          height: canvas.height - (pipe.topHeight + pipe.gap)
+        };
+        if (rectsIntersect(fox, topPipeRect) || rectsIntersect(fox, bottomPipeRect)) {
+          gameOver = true;
+        }
+      });
+    }
+
+    // --- DRAW FUNCTION FOR SPIKES ---
+    function drawSpikes(x, y, width, isTop) {
+      ctx.fillStyle = 'gray';
+      // Draw spikes along the specified edge.
+      for (let i = x; i < x + width; i += spikeWidth) {
+        ctx.beginPath();
+        if (isTop) {
+          // For the top pipe: spikes point downward.
+          ctx.moveTo(i, y);
+          ctx.lineTo(i + spikeWidth / 2, y + spikeHeight);
+          ctx.lineTo(i + spikeWidth, y);
+        } else {
+          // For the bottom pipe: spikes point upward.
+          ctx.moveTo(i, y);
+          ctx.lineTo(i + spikeWidth / 2, y - spikeHeight);
+          ctx.lineTo(i + spikeWidth, y);
+        }
+        ctx.closePath();
+        ctx.fill();
+      }
+    }
+
+    // --- DRAW FUNCTION ---
+    function draw() {
+      // Draw the forest background if loaded; otherwise, clear with sky-blue.
+      if (forestImage.complete) {
+        ctx.drawImage(forestImage, 0, 0, canvas.width, canvas.height);
+      } else {
+        ctx.fillStyle = '#70c5ce';
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
+      }
+
+      // Draw the background clouds.
+      clouds.forEach(cloud => {
+        ctx.save();
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.8)';
+        ctx.beginPath();
+        // Draw three overlapping circles to create a cloud shape.
+        ctx.arc(cloud.x, cloud.y, 20 * cloud.scale, 0, Math.PI * 2);
+        ctx.arc(cloud.x + 30 * cloud.scale, cloud.y, 20 * cloud.scale, 0, Math.PI * 2);
+        ctx.arc(cloud.x + 15 * cloud.scale, cloud.y - 15 * cloud.scale, 20 * cloud.scale, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      });
+
+      // Draw each pipe along with its spikes.
+      pipes.forEach(pipe => {
+        ctx.fillStyle = '#228B22'; // green color for the pipes
+        // Draw top pipe.
+        ctx.fillRect(pipe.x, 0, pipeWidth, pipe.topHeight);
+        drawSpikes(pipe.x, pipe.topHeight, pipeWidth, true);
+        // Draw bottom pipe.
+        ctx.fillRect(pipe.x, pipe.topHeight + pipe.gap, pipeWidth, canvas.height - (pipe.topHeight + pipe.gap));
+        drawSpikes(pipe.x, pipe.topHeight + pipe.gap, pipeWidth, false);
+      });
+
+      // Draw the flying fox.
+      if (foxImage.complete) {
+        ctx.drawImage(foxImage, fox.x, fox.y, fox.width, fox.height);
+      } else {
+        ctx.fillStyle = 'orange';
+        ctx.fillRect(fox.x, fox.y, fox.width, fox.height);
+      }
+
+      // Draw the score in the top-left corner.
+      ctx.fillStyle = 'white';
+      ctx.font = '40px Arial';
+      ctx.fillText(score, 20, 50);
+    }
+
+    // --- START THE GAME ---
+    resetGame();
+  </script>
+</body>
+</html>
